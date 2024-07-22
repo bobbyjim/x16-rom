@@ -14,10 +14,19 @@ y2H	=r3H
 
 ;***************
 cscreen
-	jsr getbyt
-	txa
+	jsr getbytneg
+	cpx #$ff
+	bne @set
+	; Toggle between 40x30 and 80x60
 	sec
-	jsr screen_set_mode
+	jsr screen_mode
+	ldx #3
+	cmp #3
+	bne @set
+	ldx #0
+@set:	txa
+	clc
+	jsr screen_mode
 	bcc :+
 	jmp fcerr
 :	rts
@@ -87,7 +96,14 @@ char	jsr get_point
 
 linfc	jmp fcerr
 
+ngmerr	ldx #errngm                 ; error code for not graphics mode
+	jmp error
+
 get_point:
+	sec
+	jsr screen_mode             ; what screen mode are we in?
+	asl a                       ; is it graphics mode?
+	bcc ngmerr                  ; if not: that's an error
 	jsr frmadr
 	lda poker
 	sta x1L
@@ -102,16 +118,15 @@ get_point:
 	lda poker
 	sta y1L
 	sec
-	sbc #<200
+	sbc #<240
 	lda poker+1
 	sta y1H
-	sbc #>200
+	sbc #>240
 	bcs linfc
 	rts
 
 get_col:
-	ldy #0
-	lda (txtptr),y
+	jsr chrgot
 	bne @1
 	lda #0
 	rts
@@ -142,10 +157,10 @@ get_points_col:
 	lda poker
 	sta y2L
 	sec
-	sbc #<200
+	sbc #<240
 	lda poker+1
 	sta y2H
-	sbc #>200
+	sbc #>240
 	bcs linfc
 
 	jsr get_col

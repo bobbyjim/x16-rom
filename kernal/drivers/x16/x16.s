@@ -11,8 +11,8 @@
 .export emulator_get_data
 .export vera_wait_ready
 
-.import mouse_init
 .import ps2_init
+.import serial_init
 .import entropy_init
 .import clklo
 
@@ -26,7 +26,7 @@
 ;---------------------------------------------------------------
 ioinit:
 	jsr vera_wait_ready
-	jsr ps2_init    ;inhibit ps/2 communcation
+	jsr serial_init
 	jsr entropy_init
 	jsr clklo       ;release the clock line
 	; fallthrough
@@ -39,7 +39,7 @@ iokeys:
 	lda #1
 	sta VERA_IEN    ;VERA VBLANK IRQ for 60 Hz
 	rts
-	
+
 ;---------------------------------------------------------------
 ; ACK VBLANK IRQ
 ;

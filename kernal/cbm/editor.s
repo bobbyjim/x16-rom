@@ -19,8 +19,6 @@
 
 ;screen editor constants
 ;
-white	=$01            ;white char color
-blue	=$06            ;blue screen color
 maxchr=80
 nwrap=2 ;max number of physical lines per logical line
 
@@ -44,27 +42,13 @@ nwrap=2 ;max number of physical lines per logical line
 .export lstp
 .export lsxp
 .export cursor_blink
+.export check_charset_switch
 
-; monitor and kernal
 .export tblx
 .export pntr
 
-; monitor
-.export blnon
-.export blnsw
-.export gdbln
-.export insrt
-.export ldtb1
-.export nlines
-.export nlinesm1
-.export qtsw
-.export rvs
-.export xmon1
-.export loop4
-.export bmt2
-
 ; screen driver
-.import screen_set_mode
+.import screen_mode
 .import screen_set_charset
 .import screen_get_color
 .import screen_set_color
@@ -108,6 +92,7 @@ ldtb1	.res 61 +1       ;flags+endspace
 .export mode; [ps2kbd]
 .export data; [cpychr]
 mode	.res 1           ;    bit7=1: charset locked, bit6=1: ISO
+                         ;    bits3-0: current charset
 gdcol	.res 1           ;    original color before cursor
 autodn	.res 1           ;    auto scroll down flag(=0 on,<>0 off)
 lintmp	.res 1           ;    temporary for line index
@@ -145,9 +130,23 @@ scrorg	ldx llen
 ;read/plot cursor position
 ;
 plot	bcs plot10
-xmon1	stx tblx
+	php
+	sei
+	phx
+	phy
+	lda blnon
+	beq :+
+	lda gdbln
+	ldx gdcol       ;restore original color
+	ldy #0
+	sty blnon
+	jsr dspp
+:	ply
+	plx
+	stx tblx
 	sty pntr
 	jsr stupt
+	plp
 plot10	ldx tblx
 	ldy pntr
 	rts
@@ -174,18 +173,17 @@ cint	jsr iokeys
 	jsr panic       ;set up vic
 
 	; XXX this is too specific
-	lda #2          ;80x60
-	jsr screen_set_mode ;set screen mode to default
+	lda #0          ;80x60
+	clc
+	jsr screen_mode ;set screen mode to default
 ;
-	lda #0          ;make sure we're in pet mode
+	lda #2          ;uppercase PETSCII, not locked
 	sta mode
-	sta blnon       ;we dont have a good char from the screen yet
+	stz blnon       ;we dont have a good char from the screen yet
 
 	jsr emulator_get_data
 	jsr kbd_config  ;set keyboard layout
 
-	lda #blue << 4 | white
-	sta color       ;init text color
 	lda #$c
 	sta blnct
 	sta blnsw
@@ -248,7 +246,16 @@ loop3
 	jsr kbdbuf_get
 	sta blnsw
 	sta autodn      ;turn on auto scroll down
+.ifp02
 	beq loop3
+.else
+        ; power saving: a character from the keyboard
+	; cannot arrive before the next timer IRQ
+	bne ploop3
+        .byte $cb       ; WAI instruction
+	bra loop3
+ploop3
+.endif
 	pha
 	php
 	sei
@@ -451,7 +458,7 @@ wlogic
 
 wlog20
 	ldx tblx        ;see if we should scroll down
-	cpx nlines 
+	cpx nlines
 	bcc wlog30      ;branch if not
 	jsr scrol       ;else do the scrol up
 	dec tblx        ;and adjust curent line#
@@ -612,7 +619,14 @@ nc3w	cmp #$12
 nc1	cmp #$13
 	bne nc2
 	jsr nxtd
-nc2	cmp #$1d
+nc2	cmp #$04        ;END
+	bne nc25
+	stz pntr        ;column
+	lda nlinesm1
+	sta tblx        ;line
+	jsr stupt       ;move cursor to tblx,pntr
+	jmp loop2
+nc25	cmp #$1d        ;CSR RIGHT
 	bne ncx2
 	iny
 	jsr chkdwn
@@ -648,16 +662,21 @@ colr1	jsr chkcol      ;check for a color
 	bne upper       ;branch if not
 	bit mode
 	bvs outhre      ;ISO
-	lda #3
-	jsr screen_set_charset
-	jmp loop2
+	lda mode
+	and #$c0
+	ora #3          ;upper/lower
+	jmp setchr
 
 upper
 	cmp #$8e        ;does he want upper case
 	bne lock        ;branch if not
 	bit mode
 	bvs outhre      ;ISO
-	lda #2
+	lda mode
+	and #$c0
+	ora #2          ;upper/graph
+setchr	sta mode
+	and #$0f
 	jsr screen_set_charset
 outhre	jmp loop2
 
@@ -693,8 +712,6 @@ isooff
 	lda mode
 	and #$ff-$40
 isosto	sta mode
-	lda #$ff
-	jsr kbd_config  ;reload keymap
 	jsr clsr        ;clear screen
 	jmp loop2
 
@@ -770,8 +787,15 @@ up1	jmp nc3
 up2	cmp #$11
 	bne nxt2
 	ldx tblx
-	beq jpl2
-	dec tblx
+	bne up3
+	ldx #0          ;scroll screen DOWN!
+	jsr bmt2        ;insert line at top of screen
+	lda ldtb1
+	ora #$80        ;first line is not an extension
+	sta ldtb1
+	jsr stupt
+	bra jpl2
+up3	dec tblx
 	lda pntr
 	sec
 	sbc llen
@@ -1071,14 +1095,25 @@ cursor_blink:
 
 @5	rts
 
+; call with .a: shflag
+check_charset_switch:
+	cmp #3
+	bne @skip
+	lda mode
+	bmi @skip       ;not if locked
+	bvs @skip       ;not if ISO mode
+	eor #1          ;alternate between 2 and 3
+	sta mode
+	jmp screen_set_charset
+@skip	rts
 
-runtb	.byt "LOAD",$d,"RUN",$d
+runtb	.byt "LOAD",$d,"RUN:",$d
 runtb_end:
 
-fkeytb	.byt "LIST", 13, 0
-	.byt "MONITOR", 13, 0
-	.byt "RUN", 13, 0
-	.byt $93, "S", 'C' + $80, "255", 13, 0
+fkeytb	.byt "LIST:", 13, 0
+	.byt "MONITOR:", 13, 0
+	.byt "RUN:", 13, 0
+	.byt $93, "S", 'C' + $80, "-1", 13, 0
 	.byt "LOAD", 13, 0
 	.byt "SAVE", '"', 0
 	.byt "DOS",'"', "$",13, 0

@@ -5,8 +5,8 @@
 
 .feature labels_without_colons
 
-.import plot, scrorg, iclall, igetin, istop, savesp, loadsp, ibsout, ibasin, iclrch, ickout, ichkin, iclose, iopen, setnam, setlfs, readst, talk, listn, unlsn, untlk, ciout, acptr, settmo, kbd_scan, tksa, secnd, setmsg, ramtas, ioinit, cint, cmpare, stash, indfet, jsrfar, screen_set_charset, screen_set_mode, lkupsa, lkupla, close_all, enter_basic, macptr
-.import I_FB_move_pixels, I_FB_filter_pixels, I_FB_fill_pixels, I_FB_set_8_pixels_opaque, I_FB_set_8_pixels, I_FB_set_pixels, I_FB_set_pixel, I_FB_get_pixels, I_FB_get_pixel, I_FB_cursor_next_line, I_FB_cursor_position, I_FB_set_palette, I_FB_get_info, I_FB_init
+.import plot, scrorg, iclall, igetin, istop, savesp, loadsp, ibsout, ibasin, iclrch, ickout, ichkin, iclose, iopen, setnam, setlfs, readst, talk, listn, unlsn, untlk, ciout, acptr, settmo, kbd_scan, tksa, secnd, setmsg, ramtas, ioinit, cint, cmpare, stash, indfet, jsrfar, screen_set_charset, screen_mode, lkupsa, lkupla, close_all, enter_basic, macptr
+.import FB_move_pixels, FB_filter_pixels, FB_fill_pixels, FB_set_8_pixels_opaque, FB_set_8_pixels, FB_set_pixels, FB_set_pixel, FB_get_pixels, FB_get_pixel, FB_cursor_next_line, FB_cursor_position, FB_set_palette, FB_get_info, FB_init
 .import memory_decompress, memory_crc, memory_copy, memory_fill
 .import monitor
 .import mouse_config, mouse_scan, mouse_get; [mouse]
@@ -22,7 +22,10 @@
 
 .import console_init, console_put_char, console_get_char, console_put_image, console_set_paging_message
 
-.import kbdbuf_put, entropy_get
+.import kbdbuf_peek, kbdbuf_get_modifiers, kbdbuf_put
+.import keymap
+
+.import entropy_get
 
 .import restor, memtop, membot, vector, puls, start, nmi, iobase, primm
 
@@ -32,14 +35,26 @@
 ;
 ; !!! DO NOT RELY ON THEIR ADDRESSES JUST YET !!!
 ;
+	.byte 0,0,0                    ; $FEA8
+	.byte 0,0,0                    ; $FEAB
+	.byte 0,0,0                    ; $FEAE
+	.byte 0,0,0                    ; $FEB1
+	.byte 0,0,0                    ; $FEB4
+	.byte 0,0,0                    ; $FEB7
+	.byte 0,0,0                    ; $FEBA
 
-	.byte 0,0,0                    ; $FEC0
-	.byte 0,0,0                    ; $FEC3
+	jmp kbdbuf_peek                ; $FEBD
+	jmp kbdbuf_get_modifiers       ; $FEC0
+	jmp kbdbuf_put                 ; $FEC3
+
 	jmp i2c_read_byte              ; $FEC6
 	jmp i2c_write_byte             ; $FEC9
+
 	jmp monitor                    ; $FECC
+
 	jmp entropy_get                ; $FECF
-	jmp kbdbuf_put                 ; $FED2
+
+	jmp keymap                     ; $FED2
 
 	jmp console_set_paging_message ; $FED5
 	jmp console_put_image          ; $FED8
@@ -61,20 +76,20 @@
 .ifdef MACHINE_C64
 	.res 14*3
 .else
-	jmp (I_FB_init)                ; $FEF6: FB_init
-	jmp (I_FB_get_info)            ; $FEF9: FB_get_info
-	jmp (I_FB_set_palette)         ; $FEFC: FB_set_palette
-	jmp (I_FB_cursor_position)     ; $FEFF: FB_cursor_position
-	jmp (I_FB_cursor_next_line)    ; $FF02: FB_cursor_next_line
-	jmp (I_FB_get_pixel)           ; $FF05: FB_get_pixel
-	jmp (I_FB_get_pixels)          ; $FF08: FB_get_pixels
-	jmp (I_FB_set_pixel)           ; $FF0B: FB_set_pixel
-	jmp (I_FB_set_pixels)          ; $FF0E: FB_set_pixels
-	jmp (I_FB_set_8_pixels)        ; $FF11: FB_set_8_pixels
-	jmp (I_FB_set_8_pixels_opaque) ; $FF14: FB_set_8_pixels_opaque
-	jmp (I_FB_fill_pixels)         ; $FF17: FB_fill_pixels
-	jmp (I_FB_filter_pixels)       ; $FF1A: FB_filter_pixels
-	jmp (I_FB_move_pixels)         ; $FF1D: FB_move_pixels
+	jmp FB_init                    ; $FEF6: FB_init
+	jmp FB_get_info                ; $FEF9: FB_get_info
+	jmp FB_set_palette             ; $FEFC: FB_set_palette
+	jmp FB_cursor_position         ; $FEFF: FB_cursor_position
+	jmp FB_cursor_next_line        ; $FF02: FB_cursor_next_line
+	jmp FB_get_pixel               ; $FF05: FB_get_pixel
+	jmp FB_get_pixels              ; $FF08: FB_get_pixels
+	jmp FB_set_pixel               ; $FF0B: FB_set_pixel
+	jmp FB_set_pixels              ; $FF0E: FB_set_pixels
+	jmp FB_set_8_pixels            ; $FF11: FB_set_8_pixels
+	jmp FB_set_8_pixels_opaque     ; $FF14: FB_set_8_pixels_opaque
+	jmp FB_fill_pixels             ; $FF17: FB_fill_pixels
+	jmp FB_filter_pixels           ; $FF1A: FB_filter_pixels
+	jmp FB_move_pixels             ; $FF1D: FB_move_pixels
 .endif
 
 	;
@@ -105,7 +120,7 @@
 	jmp joystick_get       ; $FF56: joystick_get - get state of one joystick       [unsupported C128: PHOENIX – init function cartridges]
 	jmp lkupla             ; $FF59: [C128] LKUPLA - look up logical file address
 	jmp lkupsa             ; $FF5C: [C128] LKUPSA - look up secondary address
-	jmp screen_set_mode    ; $FF5F: screen_set_mode - set screen mode              [unsupported C128: SWAPPER]
+	jmp screen_mode        ; $FF5F: screen_mode - get/set screen mode              [unsupported C128: SWAPPER]
 	jmp screen_set_charset ; $FF62: activate 8x8 text mode charset                 [incompatible with C128: DLCHR – init 80-col character RAM]
 	.byte 0,0,0            ; $FF65: [C128] PFKEY – program a function key          [NYI]
 	jmp mouse_config       ; $FF68: mouse_config - configure mouse pointer         [unsupported C128: SETBNK – set bank for I/O operations]
@@ -114,7 +129,7 @@
 	jmp mouse_scan         ; $FF71: mouse_scan - read mouse state                  [unsupported C128: JMPFAR – goto another bank]
 	jmp indfet             ; $FF74: [C128] FETCH – LDA (fetvec),Y from any bank
 	jmp stash              ; $FF77: [C128] STASH – STA (stavec),Y to any bank
-	jmp cmpare             ; $FF7A: [C128] CMPARE – CMP (cmpvec),Y to any bank
+	.byte 0,0,0            ; $FF7A:                                                [unsupported C128: CMPARE]
 	jmp primm              ; $FF7D: [C128] PRIMM – print string following the caller’s code
 
 	;KERNAL revision

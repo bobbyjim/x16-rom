@@ -57,7 +57,15 @@ monitor:
 	; does not return
 
 ;***************
+codex:
+   jsr bjsrfar
+   .word $c000
+   .byte BANK_CODEX
+	; does not return
+
+;***************
 geos:
+	sei
 	jsr bjsrfar
 	.word $c000 ; entry
 	.byte BANK_GEOS
@@ -90,6 +98,7 @@ coltab	;this is an unavoidable duplicate from KERNAL
 	.byt $90,$05,$1c,$9f,$9c,$1e,$1f,$9e
 	.byt $81,$95,$96,$97,$98,$99,$9a,$9b
 
+;***************
 ; convert byte to binary in zero terminated string and
 ; return it to BASIC
 bind:	jsr chrget ; get char
@@ -128,10 +137,9 @@ bind:	jsr chrget ; get char
 	jsr chkcls ; end of conversion, check closing paren
 	pla        ; remove return address from stack
 	pla
-        lda #<(lofbuf)
-	ldy #>(lofbuf)
-	jmp strlit  ; allocate and return string value
+	jmp strlitl; allocate and return string value from lofbuf
 
+;***************
 ; convert byte to hex in zero terminated string and
 ; return it to BASIC
 hexd:	jsr chrget ; get char
@@ -159,9 +167,7 @@ hexd:	jsr chrget ; get char
 	jsr chkcls ; end of conversion, check closing paren
 	pla        ; remove return address from stack
 	pla
-        lda #<lofbuf
-	ldy #>lofbuf
-	jmp strlit  ; allocate and return string value
+	jmp strlitl; allocate and return string value from lofbuf
 
 ; convert byte into hex ASCII in A/Y
 ; copied from monitor.s
@@ -186,7 +192,7 @@ byte_to_hex_ascii:
 vpeek	jsr chrget
 	jsr chkopn ; open paren
 	jsr getbyt ; byte: bank
-	stx VERA_ADDR_H
+	phx
 	jsr chkcom
 	lda poker
 	pha
@@ -199,15 +205,19 @@ vpeek	jsr chrget
 	sta poker + 1
 	pla
 	sta poker
+	pla
+	sta VERA_ADDR_H
 	jsr chkcls ; closing paren
 	ldy VERA_DATA0
 	jmp sngflt
 
 ;***************
 vpoke	jsr getbyt ; bank
-	stx VERA_ADDR_H
+	phx
 	jsr chkcom
 	jsr getnum
+	pla
+	sta VERA_ADDR_H
 	lda poker
 	sta VERA_ADDR_L
 	lda poker+1
@@ -216,12 +226,29 @@ vpoke	jsr getbyt ; bank
 	rts
 
 ;***************
-vload	jsr plsv   ;parse the parameters
-	bcc vld1   ;require bank/addr
-	jmp snerr
-vld1	lda andmsk ;bank number
+bvrfy
+	lda #1
+	bra :+
+bload
+	lda #0
+:	pha
+	jsr plsvbin
+	bcc bload2
+	pla
+	bcs :+
+bload2
+	jmp cld8        ; -> load command w/ ram bank switch to chosen bank
+
+vload	jsr plsv        ;parse the parameters
+	bcc vld1        ;require bank/addr
+:	jmp snerr
+
+bvload	jsr plsvbin	;parse, with SA=2 if successful
+	bcs :-
+
+vld1	lda andmsk      ;bank number
 	adc #2
-	jmp cld10  ;jump to load command
+	jmp cld10       ;jump to load command
 
 ;***************
 old	beq old1
@@ -239,9 +266,28 @@ old1	lda txttab+1
 	sta vartab+1
 	jmp init2
 
+; ----------------------------------------------------------------
+; XXX This is very similar to the code in MONITOR. When making
+; XXX changes, have a look at both versions!
+; ----------------------------------------------------------------
 ;***************
 dos	beq ptstat      ;no argument: print status
-	jsr frmstr      ;length in .a
+	jsr frmevl
+	bit valtyp
+	bmi @str
+; numeric
+	jsr getadr
+	cmp #0          ;lo
+	beq :+
+@fcerr	jmp fcerr
+:	cpy #8           ;hi
+	bcc @fcerr
+	cpy #32
+	bcs @fcerr
+	tya
+	jmp dossw
+
+@str	jsr frefac      ;get ptr to string, length in .a
 	cmp #0
 	beq ptstat      ;no argument: print status
 	sta verck       ;save length
@@ -261,6 +307,7 @@ dos	beq ptstat      ;no argument: print status
 
 ;***************
 ; DOS command
+	sec
 	jsr listen_cmd
 	ldy #0
 :	lda (index1),y
@@ -270,37 +317,62 @@ dos	beq ptstat      ;no argument: print status
 	bne :-
 	jmp unlstn
 
+; in:  C=1 show "DEVICE NOT PRESENT" on error
+;      C=0 return error in C
+; out: C=0 no error
+;      C=1 error
 listen_cmd:
+	php
 	jsr getfa
 	jsr listen
 	lda #$6f
 	jsr second
 	jsr readst
-	bmi device_not_present
+	bmi @error
+	plp
+	clc
+	rts
+@error:	plp
+	bcs device_not_present
+	sec
 	rts
 device_not_present:
 	ldx #5 ; "DEVICE NOT PRESENT"
 	jmp error
 
 
+clear_disk_status:
+	clc
+	bra ptstat2
 ;***************
 ; print status
-ptstat	jsr listen_cmd
-	jsr unlstn
+ptstat	sec
+ptstat2	php
+	; keep C:
+	; for printing status, print error
+	; for clearing status, return error
+	jsr listen_cmd
+	bcc :+
+	plp
+	rts
+:	jsr unlstn
 	jsr getfa
 	jsr talk
 	lda #$6f
 	jsr tksa
 dos11	jsr iecin
+	plp
+	php
+	bcc :+
 	jsr bsout
-	cmp #13
+:	cmp #13
 	bne dos11
+	plp
 	jmp untalk
 
 ;***************
 ; switch default drive
-dossw	and #$0f
-	sta basic_fa
+dossw	sta basic_fa
 	rts
 
 getfa:
@@ -385,28 +457,43 @@ disk_done
 	sec
 	jmp close
 
+; like getbyt, but negative numbers will become $FF
+getbytneg:
+	jsr frmnum      ;get numeric value into FAC
+	lda facsgn
+	bpl @pos
+	ldx #$ff
+	rts
+@pos:	jmp conint      ;convert to byte
+
+;***************
 mouse:
-	jsr getbyt
-	txa
-	ldx #0 ; keep scale
+	jsr getbytneg
+	phx
+	sec
+	jsr screen_mode
+	pla
 	jmp mouse_config
 
+;***************
 mx:
 	jsr chrget
 	ldx #fac
 	jsr mouse_get
 	lda fac+1
 	ldy fac
-	jmp givayf
+	jmp givayf0
 
+;***************
 my:
 	jsr chrget
 	ldx #fac
 	jsr mouse_get
 	lda fac+3
 	ldy fac+2
-	jmp givayf
+	jmp givayf0
 
+;***************
 mb:
 	jsr chrget
 	ldx #fac
@@ -414,24 +501,36 @@ mb:
 	tay
 	jmp sngflt
 
+;***************
 joy:
 	jsr chrget
 	jsr chkopn ; open paren
-	jsr getbyt ; byte: joystick number (1 or 2)
-	cpx #1
-	beq :+
-	cpx #2
-	beq :+
+	jsr getbyt ; byte: joystick number (0-4)
+	cpx #5
+	bcc :+
 	jmp fcerr
 :	phx
 	jsr chkcls ; closing paren
 	pla
-	dec ; KERNAL uses #0 and #1
 	jsr joystick_get
-	eor #$ff
+	iny
+	bne :+
+	lda #<minus1 ; not present?
+	ldy #>minus1 ; then return -1
+	jmp movfm
+:	eor #$ff
 	tay
-	jmp sngflt
+	txa
+	eor #$ff
+	lsr
+	lsr
+	lsr
+	lsr
+	jmp givayf0
 
+minus1:	.byte $81, $80, $00, $00, $00
+
+;***************
 reset:
 	ldx #5
 :	lda reset_copy,x
@@ -444,9 +543,133 @@ reset_copy:
 	stz rom_bank
 	jmp ($fffc)
 
+;***************
 cls:
 	lda #$93
 	jmp outch
+
+;***************
+locate:
+	jsr screen
+	stx poker
+	sty poker+1
+
+	jsr getbyt ; byte: line
+	php
+	dex
+	bmi @error
+	cpx poker+1
+	bcs @error
+	plp
+	phx
+	bne @1
+
+; just set the line, leave the column the same
+	sec
+	jsr plot
+	bra @2
+
+@1:	jsr chkcom
+	jsr getbyt
+	txa
+	tay
+	dey
+	bmi @error
+	cpy poker
+	bcs @error
+
+@2:	plx
+	clc
+	jmp plot
+
+@error:
+	jmp fcerr
+
+;***************
+ckeymap:
+	jsr frmstr
+	cmp #6
+	bcs @fcerr
+	tay
+	lda #0
+	sta a:lofbuf,y  ;make a copy, so we can
+	dey             ;zero-terminate it
+:	lda (index1),y
+	sta a:lofbuf,y
+	dey
+	bpl :-
+	ldx #<lofbuf
+	ldy #>lofbuf
+	clc
+	jsr keymap
+	bcs @fcerr
+	rts
+@fcerr:	jmp fcerr
+
+;***************
+.export curbank
+.segment "BVARS"
+	curbank: .res 1
+
+.segment "BASIC"
+.export setbank
+setbank:
+	jsr getbyt
+	stx curbank
+	rts
+
+;***************
+test:
+	beq @test0
+	jsr getbyt
+	txa
+	cmp #4
+	bcc @run
+	jmp fcerr
+
+@test0:	lda #0
+@run:
+	pha	; index
+	ldx #@copy_end-@copy-1
+:	lda @copy,x
+	sta $0400,x
+	dex
+	bpl :-
+	jmp $0400
+
+@copy:
+	sei
+	lda #BANK_DEMO
+	sta rom_bank
+	lda #<$c000
+	sta 2
+	lda #>$c000
+	sta 3
+	lda #<$1000
+	sta 4
+	lda #>$1000
+	sta 5
+	ldx #$40
+	ldy #0
+:	lda (2),y
+	sta (4),y
+	iny
+	bne :-
+	inc 3
+	inc 5
+	dex
+	bne :-
+	lda #$6c
+	sta $0400
+	pla
+	asl
+	sta $0401
+	lda #$10
+	sta $0402
+	stz rom_bank
+	cli
+	jmp $0400
+@copy_end:
 
 ; BASIC's entry into jsrfar
 .setcpu "65c02"

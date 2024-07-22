@@ -6,12 +6,15 @@ BANK_GEOS    = 3
 BANK_BASIC   = 4
 BANK_MONITOR = 5
 BANK_CHARSET = 6
+BANK_CODEX   = 7
+BANK_GRAPH   = 8
+BANK_DEMO	 = 9
 
 ; XXX these constant RAM addresses are KERNAL
 ; XXX implementation details and need to go away!
 .ifdef MACHINE_X16
-cbdos_flags= $0267
-status     = $0286 ; channel: status byte
+cbdos_flags= $0268
+status     = $0287 ; channel: status byte
 jsrfar3    = $02c4 ; jsrfar: RAM part
 jmpfr      = $02df ; jsrfar: core jmp instruction
 imparm     = $82   ; jsrfar: temporary byte
@@ -84,6 +87,8 @@ imparm     = $E2
 	stx ram_bank
 .endmacro
 
+; Warning: KVARS_START_TRASH_NZ and KVARS_END_TRASH_NZ can cause a race
+; condition if interrupts are enabled.
 .macro KVARS_START_TRASH_NZ
 .import kvswitch_tmp1, kvswitch_tmp2
 	sta kvswitch_tmp1

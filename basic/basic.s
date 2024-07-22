@@ -1,10 +1,10 @@
-.feature labels_without_colons, pc_assignment
+.feature labels_without_colons
 
 .include "banks.inc"
 .include "kernal.inc"
-.include "../fplib/fplib.inc"
+.include "../math/math.inc"
 
-; XXX exports for FPLIB
+; XXX exports for Math library
 .global error, fcerr  ; code
 .global errdvo, errov ; constants
 
@@ -35,5 +35,4 @@
 .include "init.s"
 .include "x16additions.s"
 .include "graph.s"
-.include "test.s"
 

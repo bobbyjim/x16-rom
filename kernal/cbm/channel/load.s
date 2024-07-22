@@ -4,8 +4,6 @@
 ; (C)1983 Commodore Business Machines (CBM)
 ; additions: (C)2020 Michael Steil, License: 2-clause BSD
 
-.import macptr
-
 ;**********************************
 ;* load ram function              *
 ;*                                *
@@ -14,8 +12,13 @@
 ;* determined by contents of      *
 ;* variable fa.                   *
 ;*                                *
-;* alt load if sa=0, normal sa=1  *
-;* .x , .y load address if sa=0   *
+;* sa byte:                       *
+;*  76543210                      *
+;*        ||                      *
+;*        |+-address source       *
+;*        +--write header         *
+;* .x , .y load address if        *
+;*   address source = 0           *
 ;* .a=0 performs load to ram      *
 ;* .a=1 performs verify           *
 ;* .a>1 performs load to vram;    *
@@ -26,8 +29,10 @@
 ;*                                *
 ;**********************************
 
-loadsp	stx memuss      ;.x has low alt start
-	sty memuss+1
+.importzp tmp2
+
+loadsp	stx eal         ;.x has low alt start
+	sty eah
 load	jmp (iload)     ;monitor load entry
 ;
 nload	and #$1f
@@ -35,6 +40,7 @@ nload	and #$1f
 	dec verck       ;<0: RAM, =0: VERIFY, >0: VRAM
 	lda #0
 	sta status
+	sta tmp2        ;flags for headerless load
 ;
 	lda fa          ;check device number
 	bne ld20
@@ -67,19 +73,27 @@ ld25	ldx sa          ;save sa in .x
 	lda sa
 	jsr tksa        ;tell it to load
 ;
-	jsr acptr       ;get first byte
-	sta eal
+	txa             ;get old sa
+	and #$02        ;check for headerless load
+	beq ld27
+	sec
+	ror tmp2        ;set high bit of headerless load flag
+	bcc ld30        ;don't load first two bytes
+;
+ld27	jsr acptr       ;get first byte
+	sta memuss
 ;
 	lda status      ;test status for error
 	lsr a
 	lsr a
 	bcs ld15        ;file not found...
 	jsr acptr
-	sta eah
+	sta memuss+1
 ;
 	txa             ;find out old sa
-	bne ld30        ;sa<>0 use disk address
-	lda memuss      ;else load where user wants
+	and #$01
+	beq ld30        ;(sa & 1) == 0 load where user wants
+	lda memuss      ;else use disk address
 	sta eal
 	lda memuss+1
 	sta eah
@@ -92,23 +106,64 @@ ld30	jsr loding      ;tell user loading
 ;
 ;block-wise load into RAM
 ;
-bld10	jsr stop        ;stop key?
+bld10
+	jsr stop        ;stop key?
 	beq break2
+	lda verck
+	clc
+	bmi bld11							; check load into RAM/VRAM
+	sec       						; RAM
+	ldx #<VERA_DATA0      ; use data0 for call to MACPTR instead of VRAM address
+	ldy eah								; store VRAM address as EAH instead of data0 address.
+	phy
+	ldy #>VERA_DATA0
+	bra bld12
+bld11:
 	ldx eal
 	ldy eah
+.ifdef MACHINE_X16
+        phy             ;save address hi
+.endif
+bld12:
 	lda #0          ;load as many bytes as device wants
 	jsr macptr
-	bcs ld40        ;not supported, fall back to byte-wise
-	txa
+	bcc :+
+.ifdef MACHINE_X16
+	pla             ;clear hi address from stack
+.endif
+	jmp ld40        ;not supported, fall back to byte-wise
+:	txa
 	clc
 	adc eal
 	sta eal
 	tya
 	adc eah
+.ifdef MACHINE_X16
+	; fix-up address when loading into banked RAM:
+	; this should reflect the banked RAM address following
+	; the last byte written (exception: $BFFF -> $A000)
+	ply             ;start address hi
+	ldx verck				; check mode for VRAM
+	bpl @skip				; don't do bank check if VRAM (RAM: verck=$FF)
+	cpy #$a0
+	bcc @skip       ;below banked RAM
+	cpy #$c0
+	bcs @skip       ;above banked RAM
+@loop	cmp #$c0
+	bcc @skip
+	sbc #$20
+	bra @loop
+@skip
+.endif
 	sta eah
 	bit status      ;eoi?
 	bvc bld10       ;no...continue load
-	bra ld70
+	lda tmp2        ;first block of headerless load?
+	bpl ld70        ;no, regular eoi
+	lsr a
+	lsr a
+	bcc ld70        ;no timeout/fnf so just eoi
+ld34	jmp ld15    ;file not found when on first attempt
 
 ;
 ;initialize vera registers
@@ -123,6 +178,7 @@ ld35
 	sta VERA_ADDR_L ;set address bits 7:0
 	lda eah
 	sta VERA_ADDR_M ;set address bits 15:8
+	bra bld10       ; attempt block read using macptr
 ;
 ld40	lda #$fd        ;mask off timeout
 	and status
@@ -138,8 +194,12 @@ ld45	jsr acptr       ;get byte off ieee
 	lda status      ;was there a timeout?
 	lsr a
 	lsr a
-	bcs ld40        ;yes...try again
-	txa
+	bcc ld46        ;no...keep going
+	asl tmp2        ;first read of headerless load?
+	bcc ld40        ;no...must be timeout, try again
+	bcs ld34        ;yes, file not found
+;
+ld46	txa
 	ldy verck       ;what operation are we doing?
 	bmi ld50        ;load into ram
 	beq ld47        ;verify
@@ -158,7 +218,7 @@ ld50	ldy #0
 ld60	inc eal         ;increment store addr
 	bne ld64
 	inc eah
-.if 0 ; DISABLED for now, since block-wise path doesn't support it (yet?)
+.ifdef MACHINE_X16
 ;
 ;if necessary, wrap to next bank
 ;
@@ -236,16 +296,28 @@ ld410	jsr spmsg
 	beq frmto1      ;skip if verify
 	ldy #ms7-ms1    ;"from $"
 msghex	jsr msg
+.ifdef MACHINE_X16
+	lda eah
+	cmp #$a0
+	bcc :+
+	cmp #$c0
+	bcs :+
+	lda ram_bank
+	jsr hex8
+	lda #':'
+	jsr bsout
+:
+.endif
 	lda eah
 	jsr hex8
 	lda eal
-hex8	tax
+hex8	tay
 	lsr
 	lsr
 	lsr
 	lsr
 	jsr hex4
-	txa
+	tya
 	and #$0f
 hex4	cmp #$0a
 	bcc hex010

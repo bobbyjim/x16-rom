@@ -15,6 +15,10 @@ This is the Commander X16 ROM containing BASIC, KERNAL, DOS and GEOS. BASIC and 
 	* works on SD cards with FAT32 filesystems.
 	* supports long filenames, timestamps.
 	* supports partitions and subdirectories (CMD-style).
+* CodeX Interactive Assembly Environment
+   * edit assembly code in RAM
+   * save program, and debug information
+   * run and debug assembly programs
 
 
 Releases and Building
@@ -28,7 +32,7 @@ Each [release of the X16 emulator][emu-releases] includes a compatible build of 
 
 ### Building the ROM
 
-Building this source code requires only [GNU Make] and the [cc65] assembler. GNU Make is almost invariably available as a system package with any Linux distribution; cc65 less often so. 
+Building this source code requires only [GNU Make], [Python 3.7] (or higher) and the [cc65] assembler. GNU Make is almost invariably available as a system package with any Linux distribution; cc65 less often so. 
 
 - Red Hat/CentOS: `sudo yum install make cc65` 
 - Debian/Ubuntu: `sudo apt-get install make cc65`
@@ -38,6 +42,8 @@ On macOS, cc65 in [homebrew](https://brew.sh/), which must be installed before i
 - macOS: `brew install cc65`
 
 If cc65 is not available as a package on your system, you'll need to install or build/install it per the instructions below.
+
+To check the version of python you have use `python3 --version`.
 
 Once the prerequisites are available, type `make` to build `rom.bin`. To use that with the emulator, copy it to the same directory as the `x16emu` binary or use `x16emu -rom .../path/to/rom.bin`.
 
@@ -65,85 +71,129 @@ This will leave the binaries in the `bin/` subdirectory; you may use thes direct
 Consult the Nesdev Wiki [Installing CC65][nd-cc65] page for some hints, including Windows installs. However, the Debian packages they suggest from [trikaliotis.net] appear to have signature errors.
 
 
-New Features
-------------
-
-* F-keys:
-	F1: `LIST`
-	F2: `MONITOR`
-	F3: `RUN`
-	F4: &lt;switch 40/80&gt;
-	F5: `LOAD`
-	F6: `SAVE"`
-	F7: `DOS"$`
-	F8: `DOS`
-* New BASIC instructions
-	* `MONITOR`: see below.
-	* `DOS`:
-	no argument: read disk status.
-	"8" or "9" as an argument: switch default drive.
-	"$" as an argument: show directory.
-	all other arguments: send DOS command
-	* `VPEEK`(bank, offset), `VPOKE` bank, offset, value to access video memory. "offset" is 16 bits, "bank" is bits 16-19 of the linear address.
-	Note that the tokens for the new BASIC commands have not been finalized yet, so loading a BASIC program that uses the new keywords in a future version of the ROM will break!
-* Support for `$` and `%` in BASIC expressions for hex and binary
-* `LOAD` prints the start and end(+1) addresses
-* Integrated Monitor derived from the [Final Cartridge III](https://github.com/mist64/final_cartridge).
-	* `O00`..`OFF` to switch ROM and RAM banks
-	* `OV0`..`OV4` to switch to video address space
-* FAT32-formatted SD card as drive 8 as a full IEEE-like (TALK/LISTEN & CBM DOS) compatible device
-* Some new KERNAL APIs (to be documented)
-
-
-Big TODOs
----------
-
-* BASIC needs more features.
-* Commodore Serial Bus is not working.
-
-
-ROM Map
--------
-
-|Bank|Name   |Description                                            |
-|----|-------|-------------------------------------------------------|
-|0   |KERNAL |KERNAL                                                 |
-|1   |KEYBD  |Keyboard layout tables                                 |
-|2   |CBDOS  |The computer-based CBM-DOS for FAT32 SD cards          |
-|3   |GEOS   |GEOS KERNAL                                            |
-|4   |BASIC  |BASIC interpreter                                      |
-|5   |MONITOR|Machine language monitor                               |
-|6   |CHARSET|PETSCII and ISO character sets (uploaded into VRAM)    |
-|7-31|–      |*[Currently unused]*                                   |
-
-
-RAM Map
--------
-
-* fixed RAM:
-	* $0000-$0400 KERNAL/BASIC/DOS system variables
-	* $0400-$0800 currently unused
-	* $0800-$9F00 BASIC RAM
-* banked RAM:
-	* bank 0: KERNAL and DOS buffers and variables
-	* banks 1-255: free for applications
-
 
 Credits
 -------
 
-* All new code, and additions to legacy code: &copy;2021 Michael Steil, [www.pagetable.com](https://www.pagetable.com/); 2-clause BSD license
-* FAT32 and SD card drivers: &copy;2018 Frank van den Hoef; 2-clause BSD license
-* 6502/6522 i2c driver: &copy;2015 Dieter Hauer; 2-clause BSD license
-* `kernal/open-roms`: &copy;2019 Paul Gardner-Stephen, 2019; GPLv3 license
-* `kernal/cbm`: &copy;1983 Commodore Business Machines (CBM)
-* `basic`: &copy;1977 Microsoft Corp.
-* `geos`: &copy;1985 Berlekey Softworks
-
+See [LICENSE.md](LICENSE.md)
 
 
 Release Notes
 -------------
+
+### Release 41 ("Marrakech")
+
+* KERNAL
+	* keyboard
+		* added 16 more keyboard layouts (28 total)
+		* default layout ("ABC/X16") is now based on Macintosh "ABC - Extended" (full ISO-8859-15, no dead keys)
+		* "keymap" API to activate a built-in keyboard layout
+		* custom keyboard layouts can be loaded from disk (to $0:$A000)
+		* Caps key behaves as expected
+		* support for Shift+AltGr combinations
+		* support for dead keys (e.g. ^ + e = ê)
+		* PgUp/PgDown, End, Menu and Del generate PETSCII codes
+		* Numpad support
+		* Shift+Alt toggles between charsets (like C64)
+		* Editor: "End" will position cursor on last line
+	* VERA source/target support for `memory_fill`, `memory_copy`, `memory_crc`, `memory_decompress` [with PG Lewis]
+	* fixed headerless load for verify/VRAM cases [Mike Ketchen]
+	* don't reset screen colors on mode switch
+* BASIC:
+	* `BLOAD`, `BVLOAD` and `BVERIFY` commands for header-less loading [ZeroByteOrg]
+	* `KEYMAP` command to change keyboard layout
+	* support `DOS8`..`DOS31` (and `A=9:DOSA` etc.) to switch default device
+	* `MOUSE` and `SCREEN` accept -1 as argument (was: $FF)
+	* Changed auto-boot filename from `AUTOBOOT.X16*` to `AUTOBOOT.X16`
+* Monitor:
+	* fixed RMB/SMB disassembly
+* Charset:
+	* X16 logo included in ISO charset, code $AD, Shift+Alt+k in ISO mode
+
+### Release 40 ("Bonn")
+
+* KERNAL
+	* Features
+		* NMI & BRK will enter monitor
+		* added ':' to some F-key replacements
+		* allow scrolling screen DOWN: `PRINTCHR$($13)CHR$($91)`
+		* Serial Bus works on hardware
+	* Bugs
+		* fixed SA during LOAD
+		* fixed joystick routine messing with PS/2 keyboard [Natt Akuma]
+	* API
+		* keyhandler vector ($032E/$032F) doesn't need to return Z
+		* PLOT API will clear cursor
+* BASIC
+		* on RESET, runs PRG starting with "AUTOBOOT.X16" from device 8 (N.B.: on host fs, name it "AUTOBOOT.X16*" for now!)
+		* BOOT statement with the same function
+* DOS
+	* better detection of volume label
+	* fixed `$=P` (list partitions), `$*=P`/`D` (dir filtering), hidden files
+* MONITOR
+	* fixed F3/F5 and CSR UP/DOWN auto-scrolling
+	* fixed LOAD, SAVE, @
+* CodeX
+	* works this time! [mjallison42]
+
+### Release 39 ("Buenos Aires")
+
+* KERNAL
+	* Adaptation to match Proto 2 Hardware
+		* support for 4 SNES controllers
+		* 512 KB ROM instead of 128 KB
+		* new I/O layout
+		* PS/2 and SNES controller GPIOs layout
+		* banking through $00 and $01
+	* Proto 2 Hardware Features
+		* I2C bus (driver by Dieter Hauer, 2-clause BSD)
+		* SMC: reset and shutdown support
+		* RTC: `DA$`/`TI$` and KERNAL APIs bridge to real-time-clock
+	* Screen Features
+		* New screen_mode API allows setting and getting current mode and resolution
+		* support for 320x240 framebuffer (mode $80/128) [with gaekwad]
+		* added 80x30,40x60,40x30,40x15,20x30,20x15 text modes (note new numbers!)
+	* Keyboard Features
+		* added KERNAL vector to allow intercepting PS/2 codes [Stefan B Jakobsson]
+		* added kbdbuf_peek, kbdbuf_get_modifiers, kbdbuf_put API
+	* Other Features
+		* support for LOADing files without 2-byte PRG header [Elektron72]
+		* support for LOAD into banked RAM (acptr and macptr)
+		* support BEL code (`PRINT CHR$(7)`)
+		* keyboard joystick (joystick 0) supports all SNES buttons
+		* support for 4 SNES controllers (joystick 1-4) [John J Bliss]
+	* Bugs
+		* fixed crash in FB_set_pixels for count>255 [Irmen de Jong]
+		* fixed bank switching macros [Stephen Horn]
+		* fixed preserving P in JSRFAR [CasaDeRobison]
+		* fixed race condition in joystick_get [Elektron72]
+		* removed ROM banking limitations from JSRFAR and FETVEC [Elektron72, Stefan B Jakobsson]
+		* fixed disabling graphics layer when returning to text mode [Jaxartes]
+		* fixed default cursor color when switching to text mode
+		* reliable mouse_config support for screen sizes
+* Math
+	* renamed "fplib" to "math"
+	* made Math package compatible with C128/C65, but fixing FADDT, FMULTT, FDIVT, FPWRT
+* BASIC
+	* Features
+		* added `BIN$` & `HEX$` functions [Jimmy Dansbo]
+		* added LOCATE statement
+	* Bugs/Optimizations
+		* removed extra space from BASIC error messages [Elektron72]
+		* fixed `DA$` and `TI$` when accessed together or with `BIN$()`/`HEX$()` [Jaxartes]
+		* fixed null handling in `GET`/`READ`/`INPUT` [Jaxartes]
+		* fixed bank setting in `VPOKE` and `VPEEK` [Jaxartes]
+		* fixed optional 'color' argument parsing for `LINE`, `FRAME`, `RECT`
+* DOS
+	* reliable memory initialization
+	* fixed writing LFN directory entries across sector boundary
+	* fixed missing partitions ($=P) if type is $0B
+	* fixed loading to the passed-in address when SA is 0 [gaekwad]
+	* fixed problem where macptr would always return C=0, masking errors
+* GEOS
+	* text input support
+* CodeX
+	* integrated CodeX Interactive Assembly Environment into ROM [mjallison42]
 
 ### Release 38 ("Kyoto")
 
@@ -155,12 +205,12 @@ Release Notes
 	* fixed `screen_set_charset` custom charset [Rebecca G. Bettencourt]
 	* fixed `stash` to preserve A
 	* `entropy_get`: better entropy
-* FPLIB
-	* optimized addition, multiplication and SQR [Michael Jørgensen]
+* MATH
+	* optimized addition, multiplication and `SQR` [Michael Jørgensen]
 	* ported over `INT(.9+.1)` = 0 fix from C128
 * BASIC
 	* updated power-on logo to match the real X16 logo better
-	* like LOAD/SAVE, OPEN now also defaults to last IEEE device (or 8)
+	* like `LOAD`/`SAVE`, `OPEN` now also defaults to last IEEE device (or 8)
 	* fixed STOP key when showing directory listing (`DOS"$"`)
 * CHARSET
 	* changed PETSCII screen codes $65/$67 to PET 1/8th blocks
@@ -194,12 +244,12 @@ Release Notes
 		* new: console_set_paging_message (to pause after a full screen)
 		* now respects window insets
 		* try "TEST1" and "TEST2" in BASIC!
-	* new entropy_get API to get randomness, used by FPLIB/BASIC RND function
+	* new entropy_get API to get randomness, used by MATH/BASIC RND function
 * KERNAL
 	* support for VERA 0.9 register layout (Frank van den Hoef)
 * BASIC
-	* TI$ and DA$ (DATE$) are now connected to the new date/time API
-	* TI is independent of TI$ and can be assigned
+	* `TI$` and `DA$` (`DATE$`) are now connected to the new date/time API
+	* TI is independent of `TI$` and can be assigned
 * DOS
 	* enabled partition types 0x0b and 0x0c, should accept more image types
 * Build
@@ -208,7 +258,7 @@ Release Notes
 	* ROM banks are built independently
 	* support to replace CBM channel and editor code with GPLed "open-roms" code by the MEGA65 project
 * bug fixes
-	* LOAD respects target address
+	* `LOAD` respects target address
 	* FAT32 code no longer overwrites RAM
 	* monitor is not as broken any more
 
@@ -235,17 +285,17 @@ Release Notes
 	* GRAPH_move_rect supports overlapping [gaekwad]
 
 * BASIC
-	* default LOAD/SAVE device is now 8
-	* added RESET statement [Ingo Hinterding]
-	* added CLS statement [Ingo Hinterding]
+	* default `LOAD`/`SAVE` device is now 8
+	* added `RESET` statement [Ingo Hinterding]
+	* added `CLS` statement [Ingo Hinterding]
 
 * CHARSET
 	* fixed capital Ö [Ingo Hinterding]
 	* Changed Û, î, ã to be more consistent [Ingo Hinterding]
 
 * bug fixes
-	* COLOR statement with two arguments
-	* PEEK for ROM addresses
+	* `COLOR` statement with two arguments
+	* `PEEK` for ROM addresses
 	* keyboard code no longer changes RAM bank
 	* fixed clock update
 	* fixed side effects of Ctrl+A and color control codes [codewar65]
@@ -281,7 +331,7 @@ Release Notes
 
 * bug fixes:
 	* got rid of $2c partial instruction skip [Joshua Scholar]
-	* fixed TI/TI$
+	* fixed `TI`/`TI$`
 	* fixed CBDOS infinite loop
 	* zp address 0 is no longer overwritten by mouse code
 	* mouse scanning is disabled if mouse is off
@@ -318,9 +368,9 @@ Release Notes
 ### Release 33
 
 * BASIC
-	* additional LOAD syntax to load to a specific address `LOAD [filename[,device[,bank,address]]]`
-	* LOAD into banked RAM will auto-wrap into successive banks
-	* LOAD allows trailing garbage; great to just type `LOAD` into a directory line [John-Paul Gignac]
+	* additional `LOAD` syntax to load to a specific address `LOAD [filename[,device[,bank,address]]]`
+	* `LOAD` into banked RAM will auto-wrap into successive banks
+	* `LOAD` allows trailing garbage; great to just type `LOAD` into a directory line [John-Paul Gignac]
 	* new BASIC statement: `VLOAD` to load into video RAM: `VLOAD [filename[,device[,bank,address]]]` [John-Paul Gignac]
 	* complete jump table bridge
 * KERNAL: memory size detection
@@ -366,6 +416,7 @@ Release Notes
 
 <!-------------------------------------------------------------------->
 [GNU Make]: https://www.gnu.org/software/make/
+[Python 3.7]: https://www.python.org/downloads/release/python-370/
 [cc65]: https://cc65.github.io/
 [emu-releases]: https://github.com/commanderx16/x16-emulator/releases
 [nd-cc65]: https://wiki.nesdev.com/w/index.php/Installing_CC65

@@ -74,6 +74,14 @@ reslst2	.byt "MO", 'N' + $80
 	.byt "TES", 'T' + $80
 	.byt "RESE", 'T' + $80
 	.byt "CL", 'S' + $80
+	.byt "CODE", 'X' + $80
+	.byt "LOCAT", 'E' + $80
+	.byt "BOO", 'T' + $80
+	.byt "KEYMA", 'P' + $80
+	.byt "BLOA", 'D' + $80
+	.byt "BVLOA", 'D' + $80
+	.byt "BVERIF", 'Y' + $80
+	.byt "BAN", 'K' + $80
 	.byt "VPEE", 'K' + $80
 	.byt "M", 'X' + $80
 	.byt "M", 'Y' + $80
@@ -82,8 +90,6 @@ reslst2	.byt "MO", 'N' + $80
 	.byt "HEX", $a4
 	.byt "BIN", $a4
 	.byt 0
-num_esc_statements = 17
-num_esc_functions = 7
 ;**************************************
 
 err01	.byt "TOO MANY FILE",$d3
@@ -170,14 +176,17 @@ errtab	.word err01
 	.word err28
 	.word err29
 	.word err30
+	.word err31
 
 okmsg	.byt $d,"OK",$d,$0
-err	.byt $20," ERROR",0 ;add a space for vic-40 screen
+err	.byt " ERROR",0
 intxt	.byt " IN ",0
 reddy	.byt $d,"READY.",$d,0
 erbrk	=30
 brktxt	.byt $d
 err30	.byt "BREAK",0,$a0 ;shifted space
+err31	.byt "NOT GRAPHICS MOD", 'E'+$80
+errngm	=31
 
 forsiz	=$12
 fndfor	tsx

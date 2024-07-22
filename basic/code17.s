@@ -40,7 +40,7 @@ getnum	jsr frmadr
 combyt	jsr chkcom
 	jmp getbyt
 frmadr	jsr frmnum
-getadr	jsr getadr2
+getadr0	jsr getadr
 	sty poker
 	sta poker+1
 	rts
@@ -48,16 +48,16 @@ peek	lda poker+1
 	pha
 	lda poker
 	pha
-	jsr getadr
+	jsr getadr0
 	ldy #0
 	lda poker+1
-	cmp #$c0
+	cmp #$a0
 	bcs peek1
-	lda (poker),y   ;RAM
+	lda (poker),y   ;Low RAM
 	jmp peek2
-peek1	lda #poker
-	ldx #BANK_KERNAL
-	jsr fetch       ;ROM
+peek1	lda #poker	;High RAM or ROM
+	ldx curbank
+	jsr fetch
 peek2	tay
 dosgfl	pla
 	sta poker
@@ -65,10 +65,19 @@ dosgfl	pla
 	sta poker+1
 	jmp sngflt
 poke	jsr getnum
+	lda poker+1
+	cmp #$a0
+	bcs pokefr
 	txa
 	ldy #0
 	sta (poker),y
 	rts
+pokefr	lda #poker
+	sta stavec
+	txa
+	ldx curbank
+	ldy #0
+	jmp stash
 fnwait	jsr getnum
 	stx andmsk
 	ldx #0
@@ -110,6 +119,7 @@ finh	bcc fin	; skip test for 0-9
 	cmp #'$'
 	beq finh2
 	cmp #'%'
+	sec	; restore carry flag from before the comparisons; fin uses it
 	bne fin
 finh2	jmp frmevl
 ;**************************************

@@ -4,9 +4,8 @@
 ; (C)2021 Michael Steil, License: 2-clause BSD
 
 .segment "KVAR"
-
 activity_led_state:
-	.res 0
+	.res 1
 
 .segment "I2C"
 
@@ -23,7 +22,6 @@ uc_address = $42
 ; 0x05 0x00-0xFF - Activity LED Level (PWM)
 
 smc_set_activity_led:
-	rts
 	cmp activity_led_state
 	beq @rts
 	sta activity_led_state

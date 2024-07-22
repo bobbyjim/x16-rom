@@ -29,16 +29,17 @@ stop  = $ffe1
 .export t1
 
 ; serial
-.import acptr
-.import ciout
-.import listn
+acptr = $ffa5
+macptr= $ff44
+ciout = $ffa8
+listn = $ffb1
+secnd = $ff93
+talk  = $ffb4
+tksa  = $ff96
+unlsn = $ffae
+untlk = $ffab
 .import scatn
-.import secnd
-.import talk
 .import tkatn
-.import tksa
-.import unlsn
-.import untlk
 
 ; vectors
 .import iload
@@ -90,9 +91,6 @@ stop  = $ffe1
 .export status
 .export sal, sah
 
-; for monitor
-.export xmon2, fnadr
-
 .segment "ZPCHANNEL" : zeropage
 ;                      C64 location
 ;                         VVV
@@ -110,7 +108,7 @@ memuss	.res 2           ;$C3 load temps
 lat	.res 10          ;    logical file numbers
 fat	.res 10          ;    primary device numbers
 sat	.res 10          ;    secondary addresses
-.assert * = status, error, "status must be at specific address"
+.assert * = status, error, "update banks.inc!"
 __status
 	.res 1           ;$90 i/o operation status byte
 verck	.res 1           ;$93 load or verify flag
